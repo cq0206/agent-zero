@@ -13,6 +13,12 @@ dependencies = [
     "pydantic>=2.0.0"
 ]
 
+[tool.setuptools]
+py-modules = ["agent_zero_cli"]
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["agent*", "core*", "tools*"]
+
+[project.scripts]
+agent-zero = "agent_zero_cli:main"
