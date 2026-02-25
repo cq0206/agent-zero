@@ -1,6 +1,8 @@
 import os
 from openai import OpenAI
 
+from agent.recovery import RetryConfig, retry_llm_call
+
 
 class LLM:
     """
@@ -48,12 +50,13 @@ class LLM:
         temperature: float = 0,
         max_tokens: int | None = None,
     ) -> str:
+        def call() -> str:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            return response.choices[0].message.content or ""
 
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-        )
-
-        return response.choices[0].message.content or ""
+        return retry_llm_call(call, RetryConfig(3))

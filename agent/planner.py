@@ -1,6 +1,7 @@
 import json
 from typing import Any, Dict, List, Optional
 
+from agent.recovery import RetryConfig, retry_json_parse
 from core.llm import LLM
 from core.schema import Plan
 
@@ -25,8 +26,8 @@ Rules:
 - 4 to 8 tasks max.
 - Use ONLY tools from the provided tool list. If none apply, set tool=null.
 - If tool is not null, args MUST match that tool's params.
-- Tasks must be concrete and executable. Avoid vague tasks like "do more research".
-- expected_output must be verifiable (e.g., bullet list / table fields / decision with reasons).
+- Tasks must be concrete and executable.
+- expected_output must be verifiable (bullets / fields / decisions).
 """
 
 
@@ -38,53 +39,23 @@ def _strip_code_fences(text: str) -> str:
 
 
 def _safe_json_loads(text: str) -> Dict[str, Any]:
-    """
-    Robust JSON parse for occasional model slip-ups.
-    Strategy:
-    1) strip fences
-    2) try json.loads
-    3) if fails, try to extract the first {...} block
-    """
     t = _strip_code_fences(text)
-
     try:
         return json.loads(t)
     except Exception:
-        # Try best-effort extraction of the first JSON object
         start = t.find("{")
         end = t.rfind("}")
         if start != -1 and end != -1 and end > start:
-            return json.loads(t[start : end + 1])
+            return json.loads(t[start:end + 1])
         raise
 
 
 class Planner:
-    """
-    Planner creates a structured Plan from:
-    - goal
-    - prior report (for replan)
-    - memory snapshot (persistent summary + recent events)
-    - tool specs (white-listed tools)
-
-    This version is designed to be:
-    - machine-readable (schema)
-    - executable (tool whitelist + args)
-    - stable (hard constraints + low temperature)
-    """
-
     def __init__(self, llm: LLM):
         self.llm = llm
 
     @staticmethod
     def _format_tool_specs(tool_specs: List[Dict[str, Any]]) -> str:
-        """
-        tool_specs element example:
-        {
-          "name": "search_web",
-          "description": "Mock web search tool",
-          "params": {"query": "string"}
-        }
-        """
         lines = []
         for spec in tool_specs:
             name = spec.get("name")
@@ -93,15 +64,26 @@ class Planner:
             lines.append(f"- {name}: {desc} | params: {list(params.keys())}")
         return "\n".join(lines) if lines else "None"
 
+    @staticmethod
+    def _format_recalled(recalled: List[Dict[str, Any]]) -> str:
+        if not recalled:
+            return "None"
+        lines = []
+        for r in recalled:
+            lines.append(f"- (score={r['score']:.3f}) {r['text']} | meta={r.get('meta', {})}")
+        return "\n".join(lines)
+
     def create(
         self,
         goal: str,
         previous_report: Optional[str],
         memory_snapshot: str,
         tool_specs: List[Dict[str, Any]],
+        recalled_memories: List[Dict[str, Any]],
     ) -> Plan:
 
         tools_text = self._format_tool_specs(tool_specs)
+        recalled_text = self._format_recalled(recalled_memories)
 
         user_prompt = f"""Goal:
 {goal}
@@ -109,13 +91,16 @@ class Planner:
 Available tools (ONLY these are allowed):
 {tools_text}
 
-Memory snapshot (persistent summary + recent events):
+Relevant long-term memories (may contain past learnings, constraints, preferences):
+{recalled_text}
+
+Memory snapshot (summary + recent events):
 {memory_snapshot}
 
 Previous report (if any, for replanning):
 {previous_report or "None"}
 
-Now produce the plan JSON. Ensure every tool task has correct args.
+Now produce the plan JSON. Ensure tool tasks have correct args.
 """
 
         raw = self.llm.chat(
@@ -126,5 +111,9 @@ Now produce the plan JSON. Ensure every tool task has correct args.
             temperature=0,
         )
 
-        data = _safe_json_loads(raw)
+        data = retry_json_parse(
+            _safe_json_loads,
+            raw,
+            RetryConfig(max_retries=3),
+        )
         return Plan.model_validate(data)

@@ -12,6 +12,13 @@ class Tool(ABC):
     def run(self, **kwargs) -> Any:
         raise NotImplementedError
 
+    def spec(self) -> dict:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "params": {},
+        }
+
 
 class ToolRegistry:
     def __init__(self):
@@ -25,16 +32,12 @@ class ToolRegistry:
 
     def list(self) -> list[str]:
         return sorted(self._tools.keys())
-    
+
+    def run(self, name: str | None, args: dict | None = None) -> Any:
+        tool = self.get(name or "")
+        if not tool:
+            return f"[ERROR] Tool not found: {name}"
+        return tool.run(**(args or {}))
+
     def specs(self) -> list[dict]:
-        specs = []
-        for tool in self._tools.values():
-            # v0.1: 只给 query 参数的示例
-            # 后面可以做成每个 tool 自己暴露 schema
-            params = {"query": "string"} if tool.name == "search_web" else {}
-            specs.append({
-                "name": tool.name,
-                "description": tool.description,
-                "params": params
-            })
-        return specs
+        return [tool.spec() for tool in self._tools.values()]

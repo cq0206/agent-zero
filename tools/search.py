@@ -5,6 +5,18 @@ class SearchWebTool(Tool):
     name = "search_web"
     description = "Mock web search tool. Returns placeholder info."
 
+    def spec(self) -> dict:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "params": {
+                "query": {
+                    "type": "string",
+                    "description": "Search query text",
+                }
+            },
+        }
+
     def run(self, query: str) -> str:
         # v0.1: mock. v0.2+: replace with real search API / internal KB.
         return (

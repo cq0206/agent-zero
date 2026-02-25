@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Any, Dict, List
 
+from agent.recovery import RetryConfig, retry_llm_call
 from core.llm import LLM
 from core.schema import Plan, Task
 from tools.base import ToolRegistry
@@ -42,12 +43,14 @@ Return a concise result that matches the expected output.
         )
 
     def _execute_task_with_tool(self, task: Task) -> str:
-        tool = self.tools.get(task.tool or "")
-        if not tool:
-            return f"[ERROR] Tool not found: {task.tool}"
-
-        # v0.1 convention: pass the task description as query
-        out = tool.run(query=task.description)
+        args = dict(task.args or {})
+        if not args:
+            # Compatibility fallback for old plans that omitted args.
+            args = {"query": task.description}
+        out = retry_llm_call(
+            lambda: self.tools.run(task.tool, args),
+            RetryConfig(max_retries=2),
+        )
         return str(out)
 
     def execute(self, plan: Plan) -> List[StepResult]:
