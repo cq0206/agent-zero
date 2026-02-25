@@ -29,6 +29,7 @@ class AgentRuntime:
                 goal=goal,
                 previous_report=previous_report,
                 memory_snapshot=snapshot,
+                tool_specs=self.executor.tools.specs(),
             )
 
             steps = self.executor.execute(plan)
