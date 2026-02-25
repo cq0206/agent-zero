@@ -39,6 +39,11 @@ class AgentRuntime:
             self.memory.add_event("judge", {"decision": jr.decision, "missing": jr.missing})
 
             if jr.decision == "SUFFICIENT":
+
+                self.memory.update_summary(self.planner.llm)
+
+                self.memory.save()
+
                 return report
 
             # Replan: feed report back next round
